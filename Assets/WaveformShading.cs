@@ -4,23 +4,23 @@ namespace TonsOfNotes
 {
     public class WaveformShading
     {
-        public const int _samplesStreamSize = 1023; // Maximum array size (GPU API limitation, Unity was 1023)
-
         private WaveFormMipMap sampleMipMap;
+        private int rtSize;
         private float zoom;
         private float minZoom;
         private float maxZoom;
         private float offSet = 0;
 
-        public WaveformShading(float[] samples)
+        public WaveformShading(float[] samples, int rtSize)
         {
-            sampleMipMap = new WaveFormMipMap(samples, _samplesStreamSize);
-            maxZoom = samples.Length / _samplesStreamSize;
-            minZoom = 1f / maxZoom; // 1 texel
+            this.rtSize = rtSize;
+            sampleMipMap = new WaveFormMipMap(samples, rtSize);
+            maxZoom = samples.Length / rtSize;
+            minZoom = 1f / (maxZoom  + rtSize); // 1 texel
             zoom = maxZoom;
         }
 
-        public static WaveformShading CreatRandom(int nbSamples)
+        public static WaveformShading CreatRandom(int nbSamples, int rtSize)
         {
             float[] samples = new float[nbSamples];
 
@@ -29,18 +29,22 @@ namespace TonsOfNotes
             {
                 samples[i] = (float)random.NextDouble() * 2f - 1f; // Normalize random [-1, 1]
             }
-            return new WaveformShading(samples);
+            return new WaveformShading(samples, rtSize);
         }
 
         /// <summary>
-        /// Send samples stream to GPU
+        /// Send samples stream array to GPU
         /// </summary>
         public void ApplyToMaterial(UnityEngine.Material tonsMaterial)
         {
-            float[] samplesStream = new float[_samplesStreamSize];
-            for (int i = 0; i < _samplesStreamSize; i++)
+            float[] samplesStream = new float[rtSize];
+            for (int i = 0; i < rtSize; i++)
             {
-                samplesStream[i] = sampleMipMap.GetValue(Saturate((i - offSet) * zoom), zoom);
+                float index = (i - rtSize / 2) * zoom - offSet;
+                if (IsInSample(index))
+                {
+                    samplesStream[i] = sampleMipMap.GetValue(index, zoom);
+                }
             }
             
             tonsMaterial.SetFloatArray("_samples", samplesStream);
@@ -56,21 +60,21 @@ namespace TonsOfNotes
 
         public void ApplyOffSet(UnityEngine.Material tonsMaterial, float offSetChange)
         {
-            offSet += offSetChange;
+            offSet += offSetChange * zoom;
             ApplyToMaterial(tonsMaterial);
         }
 
-        private float Saturate(float value)
+        private bool IsInSample(float value)
         {
             if (value > sampleMipMap.GetMaxLod().Length - 1)
             {
-                return sampleMipMap.GetMaxLod().Length - 1;
+                return false;
             }
             if (value < 0)
             {
-                return 0;
+                return false;
             }
-            return value;
+            return true;
         }
     }
 }

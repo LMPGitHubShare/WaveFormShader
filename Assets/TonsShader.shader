@@ -31,13 +31,14 @@
                 return output;
             }
 
-            
             static const int _samplesSize = 1023;
             float _samples[_samplesSize];
             // Pixel shader
             fixed4  frag(vertexOuput input) : SV_Target
             {
-                float sampleValue = abs(_samples[saturate(input.uv.y) * _samplesSize]);
+                float index = (input.uv.y) * _samplesSize;
+
+                float sampleValue = abs(_samples[index]);
 
                 float pixelValue = ((0.5 - sampleValue / 2 < input.uv.x) && (0.5 + sampleValue / 2 > input.uv.x) > 0 ? 1.0 : 0.0);
 

@@ -11,7 +11,7 @@ namespace TonsOfNotes
             mipMap.Add(samples);
 
             float[] lastMap = samples;
-            while (lastMap.Length / 2 > stopMip)
+            while (lastMap.Length / 2 >= stopMip)
             {
                 float[] newMap = new float[lastMap.Length / 2];
                 for (int i = 0; i < newMap.Length; i++)
