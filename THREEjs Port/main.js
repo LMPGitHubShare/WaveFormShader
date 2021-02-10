@@ -1,15 +1,17 @@
 const _maxSamplesSize = 1020;
-let nbSamples = _maxSamplesSize;
+let nbSamples = 44100 * 3 * 60; // 3 min mp3 44100 Hz
 
 let redererWidth = window.innerWidth;
 let redererHeight = window.innerHeight;
 
-function GetRandomSample()
+let waveFormArray = getRandomSample();
+
+function getRandomSample()
 {
-    var samples = new Float32Array(_maxSamplesSize);
+    var samples = new Float32Array(nbSamples);
     for (var i= 0; i < nbSamples; i++)
     {
-        samples[i] = i / nbSamples;//(Math.random() * 2.0 - 1.0); // Normalize random [-1, 1]
+        samples[i] = (Math.random() * 2.0 - 1.0); // Normalize random [-1, 1]
 
         // Temp
         if (i == 0)
@@ -24,7 +26,7 @@ function GetRandomSample()
     return samples; 
 }
 
-function GetSamplesResolution()
+function getSamplesResolution()
 {
     if (redererHeight > _maxSamplesSize)
     {
@@ -33,28 +35,142 @@ function GetSamplesResolution()
     return redererHeight;
 }
 
+// WaveFrom MipMap Tool - From WaveFormMipMap.cs
+let mipMap;
+
+function initMipMap(samples, stopMip)
+{
+    mipMap = new Array ( );
+    mipMap.push(samples);
+    var lastMap = samples;
+    while (lastMap.length / 2 >= stopMip)
+    {
+        var newMap = new Float32Array(lastMap.length / 2);
+        for (var i = 0; i < newMap.length; i++)
+        {
+            newMap[i] = (lastMap[i * 2] > lastMap[i * 2 + 1] ? lastMap[i * 2] : lastMap[i * 2 + 1]);
+        }
+        mipMap.push(newMap);
+        lastMap = newMap;
+    }
+}
+
+function GetValue(i, texelSize)
+{
+    var lod = GetLod(texelSize);
+    var index = Math.floor((i * 1.0) / GetMaxLod().length * lod.length);
+    return lod[index];
+}
+
+function GetLod(texelSize)
+{
+    for (var i = 0; i < mipMap.length; i++)
+    {
+        if (GetMaxLod().length / mipMap[i].length > texelSize)
+        {
+            return mipMap[i];
+        }
+    }
+    return GetMinLod();
+}
+
+function GetMaxLod()
+{
+    return mipMap[0];
+}
+function  GetMinLod()
+{
+    return mipMap[mipMap.length - 1];
+}
+
+// WaveformShading CPU - From WaveformShading.cs
+let rtSize;
+let zoom;
+let minZoom;
+let maxZoom;
+let offSet = 0;
+
+let curentSamples;
+
+function initWaveformShading(samples, rtSizeIn)
+{
+    rtSize = rtSizeIn;
+    initMipMap(samples, rtSize);
+    maxZoom = samples.length / rtSize;
+    minZoom = 1.0 / (maxZoom  + rtSize); // 1 texel
+    zoom = maxZoom;
+    ApplyToMaterial();
+}
+
+/// <summary>
+/// Send samples stream array to GPU
+/// </summary>
+function ApplyToMaterial()
+{
+    var samplesStream = new Float32Array(rtSize);
+    for (var i = 0; i < rtSize; i++)
+    {
+        var index = (i - rtSize / 2) * zoom - offSet;
+        if (IsInSample(index))
+        {
+            samplesStream[i] = GetValue(index, zoom);
+        }
+    }
+    
+    curentSamples = samplesStream;
+    
+    updateRenderPlane();
+}
+
+function ApplyZoom(zoomChange)
+{
+    zoom += zoomChange * zoom;
+    if (zoom < minZoom) { zoom = minZoom; }
+    if (zoom > maxZoom) { zoom = maxZoom; }
+    ApplyToMaterial();
+}
+
+function ApplyOffSet(offSetChange)
+{
+    offSet += offSetChange * zoom;
+    ApplyToMaterial();
+}
+
+function IsInSample(value)
+{
+    if (value > GetMaxLod().length - 1)
+    {
+        return false;
+    }
+    if (value < 0)
+    {
+        return false;
+    }
+    return true;
+}
+
+function updateWaveformShader()
+{
+    rtSize = getSamplesResolution();
+    initWaveformShading(getRandomSample(), rtSize);
+    updateRenderPlane();
+}
+
+// WaveformShading GPU - THREE.js
 let scene;
 let camera;
 let render;
 
-// shader uniforms
-const uniforms = {
-    u_mouse: { value: { x: redererWidth / 2, y: redererHeight / 2 } },
-    u_resolution: { value: { x: redererWidth, y: redererHeight } },
-    u_time: { value: 0.0 },
-    samples: { type: "fv", value: GetRandomSample()}
-  }
+// Shader uniforms
+let uniforms;
 const clock = new THREE.Clock();
 
-
 let plane;
-function UpdateRenderPlane()
+function updateRenderPlane()
 {
-    scene.remove(plane);
+    scene.remove(plane); // TODO : Adress potential memory issues
 
-    var resolution = GetSamplesResolution();
-
-    // GLSL
+    // GLSL - From TonsShader.shader
     var vertexShader = `
     varying vec2 v_uv;
 
@@ -69,16 +185,16 @@ function UpdateRenderPlane()
     uniform vec2 u_mouse;
     uniform vec2 u_resolution;
     uniform float u_time;
-    uniform float samples[${resolution}];
+    uniform float samples[${rtSize}];
 
     void main() {
     vec2 v = u_mouse / u_resolution;
     vec2 uv = gl_FragCoord.xy / u_resolution;
 
-    int index = int((1.0 - uv.y) * ${resolution}.0);
+    int index = int((1.0 - uv.y) * ${rtSize}.0);
 
     float sampleValue = 0.0;
-    for (int i=0; i < ${resolution}; i++)
+    for (int i=0; i < ${rtSize}; i++)
     {
         if(index == i)
         {
@@ -96,6 +212,13 @@ function UpdateRenderPlane()
     }
     `;
 
+    uniforms = {
+        u_mouse: { value: { x: redererWidth / 2, y: redererHeight / 2 } },
+        u_resolution: { value: { x: redererWidth, y: redererHeight } },
+        u_time: { value: 0.0 },
+        samples: { type: "fv", value: curentSamples}
+    };
+
     // Plane (To draw waveform)
     const geometry = new THREE.PlaneGeometry();
     const material = new THREE.ShaderMaterial({
@@ -108,7 +231,7 @@ function UpdateRenderPlane()
 }
 
 
-function init()
+function createScene()
 {
     // Scene
     scene = new THREE.Scene();
@@ -127,15 +250,17 @@ function init()
     renderer.setSize(redererWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    UpdateRenderPlane();
+    updateWaveformShader();
 }
 
 // Render loop
-function animate() {
-    // update time uniform
+function update() {
+    // Update time uniform
     uniforms.u_time.value = clock.getElapsedTime();
 
-    requestAnimationFrame(animate);
+
+
+    requestAnimationFrame(update);
     renderer.render(scene, camera);
 }
 
@@ -153,7 +278,7 @@ function onWindowResize() {
         uniforms.u_resolution.value.y = redererHeight;
     }
 
-    UpdateRenderPlane();
+    updateWaveformShader();
 }
 
 // Mouse handling 
@@ -165,6 +290,22 @@ document.addEventListener('mousemove', (e) =>{
 
 window.addEventListener('resize', onWindowResize, false);
 
+window.addEventListener("wheel", event => {
+    const delta = Math.sign(event.deltaY);
+    ApplyZoom(delta * 0.1)
+});
 
-init();
-animate();
+window.addEventListener('keydown', function(event) {
+    switch (event.key) {
+        case "ArrowUp":
+            ApplyOffSet(10);
+            break;
+        case "ArrowDown":
+            ApplyOffSet(-10);
+            break;
+    }
+});
+
+// Start it boi
+createScene();
+update();
