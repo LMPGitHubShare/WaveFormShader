@@ -40,7 +40,7 @@
 
                 float sampleValue = abs(_samples[index]);
 
-                float pixelValue = ((0.5 - sampleValue / 2 < input.uv.x) && (0.5 + sampleValue / 2 > input.uv.x) > 0 ? 1.0 : 0.0);
+                float pixelValue = ((0.5 - sampleValue / 2 < input.uv.x) && (0.5 + sampleValue / 2 > input.uv.x) ? 1.0 : 0.0);
 
                 return fixed4(pixelValue, pixelValue, pixelValue, 1);
             }

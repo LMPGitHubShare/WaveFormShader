@@ -328,4 +328,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   zoomScale: 0.1
   offSetScale: 1
-  planeMaterial: {fileID: 2100000, guid: d0a1da2815d72f749b0e094e2cfb002e, type: 2}
+  planeRenderTargetMaterial: {fileID: 2100000, guid: d0a1da2815d72f749b0e094e2cfb002e,
+    type: 2}
